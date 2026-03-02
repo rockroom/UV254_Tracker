@@ -339,7 +339,7 @@
           <input id="inputAnalyst" class="field-input" type="text" placeholder="Initials or name">
         </div>
       </div>
-      <button id="submitBtn" class="submit-btn" disabled>Save Result</button>
+      <button id="submitBtn" class="submit-btn">Save Result</button>
     </div>
 
     <div id="panelTable" class="card hidden">
@@ -501,15 +501,34 @@ $('#setupConfirm').addEventListener('keydown', function(e) { if (e.key === 'Ente
 // DATA
 // ==================================================================
 function loadData() {
-  db.from('uv254_readings')
-    .select('*')
-    .order('date_time', { ascending: true })
-    .then(function(result) {
-      if (result.error) { showBanner('Error loading data: ' + result.error.message, 'error'); return; }
-      allRecords = result.data || [];
-      sliderPos = 100;
-      refresh();
-    });
+  // Supabase default limit is 1000 rows - fetch all with pagination
+  var all = [];
+  var pageSize = 1000;
+
+  function fetchPage(from) {
+    db.from('uv254_readings')
+      .select('*')
+      .order('date_time', { ascending: true })
+      .range(from, from + pageSize - 1)
+      .then(function(result) {
+        if (result.error) { showBanner('Error loading data: ' + result.error.message, 'error'); return; }
+        var rows = result.data || [];
+        all = all.concat(rows);
+        if (rows.length === pageSize) {
+          // Might be more rows, fetch next page
+          fetchPage(from + pageSize);
+        } else {
+          // All rows fetched
+          allRecords = all;
+          sliderPos = 100;
+          refresh();
+        }
+      }).catch(function(err) {
+        showBanner('Error loading data: ' + err.message, 'error');
+      });
+  }
+
+  fetchPage(0);
 }
 
 function setupRealtime() {
@@ -778,7 +797,6 @@ function checkValueInput() {
     el.classList.remove('alert-value');
     hide($('#inputAlert'));
   }
-  $('#submitBtn').disabled = !(el.value && el.value.trim().length > 0);
 }
 
 $('#inputValue').addEventListener('input', checkValueInput);
@@ -786,7 +804,11 @@ $('#inputValue').addEventListener('change', checkValueInput);
 $('#inputValue').addEventListener('keyup', checkValueInput);
 
 $('#submitBtn').addEventListener('click', function() {
-  var val = parseFloat($('#inputValue').value);
+  var valStr = $('#inputValue').value;
+  if (!valStr || !valStr.trim()) {
+    showFormError('Please enter a UV254 value'); return;
+  }
+  var val = parseFloat(valStr);
   if (isNaN(val) || val < 0 || val > 2) {
     showFormError('UV254 must be between 0.000 and 2.000'); return;
   }
@@ -797,15 +819,19 @@ $('#submitBtn').addEventListener('click', function() {
   $('#submitBtn').disabled = true;
   $('#submitBtn').textContent = 'Saving...';
 
-  db.from('uv254_readings').insert({
+  var row = {
     date_time: new Date(dt).toISOString(),
     value: val,
     analyst: $('#inputAnalyst').value.trim() || '---'
-  }).then(function(result) {
+  };
+  console.log('Inserting:', JSON.stringify(row));
+
+  db.from('uv254_readings').insert(row).then(function(result) {
     console.log('Insert result:', JSON.stringify(result));
     if (result.error) {
       showFormError('Failed to save: ' + result.error.message);
     } else {
+      showBanner('Result saved: ' + val.toFixed(3), 'success');
       $('#inputValue').value = '';
       $('#inputValue').classList.remove('alert-value');
       hide($('#inputAlert'));
