@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UV₂₅₄ Tracker — Zorn Raw</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💧</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+<style>
+  /* ── Reset & Base ─────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+    background: #f8fafc; color: #1e293b; line-height: 1.5;
+  }
+  sub { font-size: 0.65em; }
+  button { font-family: inherit; cursor: pointer; }
+  input { font-family: inherit; }
+
+  /* ── Login ────────────────────────────────────────────── */
+  .login-wrap {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; min-height: 100vh; padding: 20px;
+  }
+  .login-card {
+    background: #fff; border-radius: 14px; padding: 40px 32px;
+    border: 1px solid #e2e8f0; box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+    width: 100%; max-width: 360px; text-align: center;
+  }
+  .login-icon { font-size: 40px; margin-bottom: 8px; }
+  .login-title { font-size: 22px; font-weight: 700; color: #0c4a6e; margin-bottom: 4px; }
+  .login-sub { font-size: 14px; color: #64748b; margin-bottom: 24px; }
+  .setup-note {
+    font-size: 13px; color: #64748b; margin-bottom: 16px;
+    line-height: 1.5; background: #f1f5f9; padding: 10px 14px; border-radius: 8px;
+  }
+  .pin-input {
+    width: 100%; padding: 12px 16px; border: 1px solid #cbd5e1;
+    border-radius: 8px; font-size: 20px; text-align: center;
+    letter-spacing: 0.3em; outline: none; margin-bottom: 12px;
+  }
+  .pin-input:focus { border-color: #0369a1; }
+  .pin-btn {
+    width: 100%; padding: 12px 0; background: #0369a1; color: #fff;
+    border: none; border-radius: 8px; font-size: 15px; font-weight: 700; margin-top: 4px;
+  }
+  .pin-btn:hover { background: #075985; }
+  .login-error { color: #dc2626; font-size: 13px; margin-bottom: 8px; font-weight: 500; }
+  .login-footer { font-size: 12px; color: #94a3b8; margin-top: 24px; letter-spacing: 0.02em; }
+
+  /* ── App Layout ───────────────────────────────────────── */
+  .app { max-width: 700px; margin: 0 auto; padding: 24px 16px 48px; }
+  .app.display-mode { max-width: 1100px; }
+
+  /* ── Header ───────────────────────────────────────────── */
+  .header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 20px; padding-bottom: 14px; border-bottom: 2px solid #0369a1;
+    flex-wrap: wrap; gap: 10px;
+  }
+  .header-title { font-size: 22px; font-weight: 700; color: #0c4a6e; letter-spacing: -0.02em; }
+  .header-sub { font-size: 14px; color: #64748b; margin-top: 4px; }
+  .header-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .btn-sm {
+    padding: 6px 12px; background: #e0f2fe; color: #0369a1;
+    border: 1px solid #bae6fd; border-radius: 6px; font-size: 13px;
+    font-weight: 600; white-space: nowrap;
+  }
+  .btn-sm:hover { background: #bae6fd; }
+  .btn-sm.active { background: #0369a1; color: #fff; border-color: #0369a1; }
+
+  /* ── Cards ────────────────────────────────────────────── */
+  .card {
+    background: #fff; border-radius: 10px; padding: 20px;
+    margin-bottom: 16px; border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .card-title {
+    font-size: 15px; font-weight: 700; color: #334155;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+
+  /* ── Chart Header ─────────────────────────────────────── */
+  .chart-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px; flex-wrap: wrap; gap: 8px;
+  }
+  .range-toggle {
+    display: flex; gap: 2px; background: #f1f5f9; border-radius: 6px; padding: 2px;
+  }
+  .range-btn {
+    padding: 5px 12px; background: transparent; border: none;
+    border-radius: 5px; font-size: 12px; font-weight: 600; color: #64748b;
+  }
+  .range-btn:hover { color: #334155; }
+  .range-btn.active {
+    background: #fff; color: #0369a1; box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  }
+  .chart-wrap { position: relative; width: 100%; height: 300px; }
+  .display-mode .chart-wrap { height: 500px; }
+  .empty-chart {
+    display: flex; align-items: center; justify-content: center;
+    height: 200px; background: #f1f5f9; border-radius: 8px; color: #94a3b8; font-size: 14px;
+  }
+
+  /* ── Slider ───────────────────────────────────────────── */
+  .slider-wrap { margin-top: 16px; padding-top: 12px; border-top: 1px solid #f1f5f9; }
+  .slider-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+  }
+  .slider-date { font-size: 12px; font-weight: 600; color: #475569; min-width: 90px; }
+  .slider-label {
+    font-size: 11px; color: #94a3b8; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .slider-input {
+    width: 100%; height: 6px; appearance: none; -webkit-appearance: none;
+    background: linear-gradient(to right, #bae6fd, #0369a1);
+    border-radius: 3px; outline: none; cursor: pointer; accent-color: #0369a1;
+  }
+  .slider-input::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px;
+    background: #0369a1; border-radius: 50%; border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2); cursor: pointer;
+  }
+  .slider-hint { display: flex; justify-content: flex-end; margin-top: 4px; min-height: 24px; }
+  .jump-btn {
+    background: none; border: none; color: #0369a1;
+    font-size: 12px; font-weight: 600; padding: 2px 0;
+  }
+
+  /* ── Stats ────────────────────────────────────────────── */
+  .stats-row {
+    display: flex; gap: 10px; margin-top: 16px; padding-top: 14px;
+    border-top: 1px solid #f1f5f9; flex-wrap: wrap;
+  }
+  .stat { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 60px; }
+  .stat-label {
+    font-size: 11px; font-weight: 600; color: #94a3b8;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .stat-value { font-size: 18px; font-weight: 700; color: #0c4a6e; font-variant-numeric: tabular-nums; }
+  .stat-value.alert { color: #dc2626; }
+
+  /* ── Tabs ──────────────────────────────────────────────── */
+  .tab-row { display: flex; gap: 4px; margin-bottom: 4px; }
+  .tab-btn {
+    flex: 1; padding: 10px 0; border: none; background: transparent;
+    color: #64748b; font-weight: 600; font-size: 14px;
+    border-bottom: 2px solid transparent;
+  }
+  .tab-btn.active { color: #0369a1; border-bottom-color: #0369a1; }
+
+  /* ── Form ──────────────────────────────────────────────── */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field-label {
+    font-size: 12px; font-weight: 600; color: #64748b;
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .field-input {
+    padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 6px;
+    font-size: 15px; outline: none; transition: border-color 0.15s; color: #1e293b;
+  }
+  .field-input:focus { border-color: #0369a1; }
+  .field-input.alert-value { border-color: #fca5a5; background: #fef2f2; }
+  .field-readonly {
+    padding: 9px 12px; background: #f1f5f9; border-radius: 6px;
+    font-size: 15px; color: #475569; border: 1px solid #e2e8f0; font-weight: 500;
+  }
+  .field-alert { font-size: 12px; color: #dc2626; font-weight: 600; margin-top: 2px; }
+  .submit-btn {
+    margin-top: 18px; width: 100%; padding: 12px 0;
+    background: #0369a1; color: #fff; border: none;
+    border-radius: 8px; font-size: 15px; font-weight: 700;
+  }
+  .submit-btn:hover { background: #075985; }
+  .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── Table ─────────────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th {
+    text-align: left; padding: 8px 10px; border-bottom: 2px solid #e2e8f0;
+    font-size: 11px; font-weight: 700; color: #94a3b8;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  td { padding: 10px; color: #334155; }
+  tr.alert-row { background: #fef2f2; }
+  tr + tr { border-top: 1px solid #f1f5f9; }
+  .val-cell { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .val-cell.alert { color: #dc2626; }
+  .del-btn {
+    background: none; border: none; color: #cbd5e1; font-size: 14px; padding: 2px 6px; border-radius: 4px;
+  }
+  .del-btn:hover { color: #94a3b8; }
+  .confirm-row { display: flex; gap: 4px; justify-content: center; }
+  .confirm-yes {
+    background: #fef2f2; color: #dc2626; border: 1px solid #fecaca;
+    border-radius: 4px; font-size: 12px; font-weight: 600; padding: 2px 8px;
+  }
+  .confirm-no {
+    background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0;
+    border-radius: 4px; font-size: 12px; font-weight: 600; padding: 2px 8px;
+  }
+
+  /* ── Banners ───────────────────────────────────────────── */
+  .banner {
+    padding: 8px 14px; border-radius: 6px; font-size: 13px;
+    margin-bottom: 12px; font-weight: 500;
+  }
+  .banner.success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+  .banner.error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+  .banner.info { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+
+  /* ── Realtime indicator ────────────────────────────────── */
+  .rt-dot {
+    width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px;
+  }
+  .rt-dot.connected { background: #22c55e; box-shadow: 0 0 4px #22c55e; }
+  .rt-dot.disconnected { background: #ef4444; }
+  .rt-status { font-size: 11px; color: #94a3b8; display: flex; align-items: center; }
+
+  /* ── Footer ────────────────────────────────────────────── */
+  .footer { text-align: center; font-size: 12px; color: #94a3b8; margin-top: 32px; letter-spacing: 0.02em; }
+
+  /* ── Spinner ────────────────────────────────────────────── */
+  .spinner {
+    width: 32px; height: 32px; border: 3px solid #e2e8f0;
+    border-top: 3px solid #0369a1; border-radius: 50%;
+    animation: spin 0.8s linear infinite; margin: 0 auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Hidden ─────────────────────────────────────────────── */
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- LOGIN SCREEN                                               -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="loginScreen" class="login-wrap">
+  <div class="login-card">
+    <div class="login-icon">💧</div>
+    <h1 class="login-title">UV<sub>254</sub> Tracker</h1>
+    <p class="login-sub">Zorn Raw</p>
+
+    <!-- Setup mode -->
+    <div id="setupMode" class="hidden">
+      <p class="setup-note">Set a shared PIN for your team to access this app.</p>
+      <input id="setupPin" class="pin-input" type="password" inputmode="numeric"
+             placeholder="Create PIN (min 4 digits)" maxlength="8">
+      <input id="setupConfirm" class="pin-input" type="password" inputmode="numeric"
+             placeholder="Confirm PIN" maxlength="8">
+      <div id="setupError" class="login-error hidden"></div>
+      <button id="setupBtn" class="pin-btn">Set PIN &amp; Enter</button>
+    </div>
+
+    <!-- Login mode -->
+    <div id="loginMode" class="hidden">
+      <input id="loginPin" class="pin-input" type="password" inputmode="numeric"
+             placeholder="Enter PIN" maxlength="8">
+      <div id="loginError" class="login-error hidden"></div>
+      <button id="loginBtn" class="pin-btn">Unlock</button>
+    </div>
+
+    <!-- Loading -->
+    <div id="loginLoading"><div class="spinner"></div></div>
+  </div>
+  <p class="login-footer">Louisville Water Company — Water Quality Laboratory</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- MAIN APP                                                    -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="appScreen" class="app hidden">
+
+  <!-- Header -->
+  <header class="header">
+    <div>
+      <h1 class="header-title">UV<sub>254</sub> Tracker</h1>
+      <p class="header-sub">Zorn Raw — UV<sub>254</sub> Absorbance (cm⁻¹)</p>
+    </div>
+    <div class="header-actions">
+      <span class="rt-status"><span id="rtDot" class="rt-dot disconnected"></span><span id="rtLabel">Connecting…</span></span>
+      <button id="csvDownloadBtn" class="btn-sm" title="Download CSV">⬇ CSV</button>
+      <button id="csvUploadBtn" class="btn-sm" title="Upload CSV">⬆ CSV</button>
+      <input id="csvFileInput" type="file" accept=".csv" style="display:none">
+      <button id="displayToggle" class="btn-sm" title="Toggle display mode">🖥 Display</button>
+    </div>
+  </header>
+
+  <div id="bannerArea"></div>
+
+  <!-- Chart Card -->
+  <div class="card">
+    <div class="chart-header">
+      <h2 class="card-title">UV<sub>254</sub> Trend</h2>
+      <div class="range-toggle">
+        <button class="range-btn active" data-days="14">14-Day</button>
+        <button class="range-btn" data-days="30">30-Day</button>
+        <button class="range-btn" data-days="90">90-Day</button>
+      </div>
+    </div>
+    <div id="chartEmpty" class="empty-chart">Enter results below to see the trend.</div>
+    <div id="chartContainer" class="chart-wrap hidden">
+      <canvas id="trendChart"></canvas>
+    </div>
+
+    <!-- Slider -->
+    <div id="sliderWrap" class="slider-wrap hidden">
+      <div class="slider-header">
+        <span id="sliderStart" class="slider-date"></span>
+        <span id="sliderLabelText" class="slider-label"></span>
+        <span id="sliderEnd" class="slider-date" style="text-align:right"></span>
+      </div>
+      <input id="sliderInput" class="slider-input" type="range" min="0" max="100" step="0.5" value="100">
+      <div class="slider-hint">
+        <button id="jumpLatest" class="jump-btn hidden">Jump to latest →</button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div id="statsRow" class="stats-row hidden">
+      <div class="stat"><span class="stat-label">Last</span><span id="statLast" class="stat-value">—</span></div>
+      <div class="stat"><span class="stat-label">Avg</span><span id="statAvg" class="stat-value">—</span></div>
+      <div class="stat"><span class="stat-label">Min</span><span id="statMin" class="stat-value">—</span></div>
+      <div class="stat"><span class="stat-label">Max</span><span id="statMax" class="stat-value">—</span></div>
+      <div class="stat"><span class="stat-label">Alerts</span><span id="statAlerts" class="stat-value">—</span></div>
+    </div>
+  </div>
+
+  <!-- Tabs & Panels (hidden in display mode) -->
+  <div id="entrySection">
+    <div class="tab-row">
+      <button class="tab-btn active" data-tab="entry">Enter Result</button>
+      <button class="tab-btn" data-tab="table">View Data (<span id="recordCount">0</span>)</button>
+    </div>
+
+    <!-- Entry Form -->
+    <div id="panelEntry" class="card">
+      <h2 class="card-title">New Result</h2>
+      <div id="formError" class="banner error hidden" style="margin-top:12px"></div>
+      <div class="form-grid" style="margin-top:14px">
+        <div class="field">
+          <label class="field-label">Sample Point</label>
+          <div class="field-readonly">Zorn Raw</div>
+        </div>
+        <div class="field">
+          <label class="field-label">Analysis</label>
+          <div class="field-readonly">UV<sub>254</sub></div>
+        </div>
+        <div class="field">
+          <label class="field-label">Date / Time</label>
+          <input id="inputDateTime" class="field-input" type="datetime-local">
+        </div>
+        <div class="field">
+          <label class="field-label">Result (cm⁻¹)</label>
+          <input id="inputValue" class="field-input" type="number" step="0.001" min="0" max="2" placeholder="0.000">
+          <span id="inputAlert" class="field-alert hidden">⚠ Above alert threshold (0.100)</span>
+        </div>
+        <div class="field">
+          <label class="field-label">Analyst (optional)</label>
+          <input id="inputAnalyst" class="field-input" type="text" placeholder="Initials or name">
+        </div>
+      </div>
+      <button id="submitBtn" class="submit-btn" disabled>Save Result</button>
+    </div>
+
+    <!-- Data Table -->
+    <div id="panelTable" class="card hidden">
+      <h2 class="card-title">All Results</h2>
+      <div id="tableEmpty" class="empty-chart" style="height:80px; margin-top:12px">No results recorded yet.</div>
+      <div id="tableWrap" class="table-wrap hidden" style="margin-top:12px">
+        <table>
+          <thead><tr>
+            <th>Date / Time</th>
+            <th style="text-align:right">UV<sub>254</sub> (cm⁻¹)</th>
+            <th>Analyst</th>
+            <th style="width:60px"></th>
+          </tr></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">Louisville Water Company — Water Quality Laboratory</footer>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// CONFIGURATION — Update these two values from your Supabase project
+// ═══════════════════════════════════════════════════════════════
+const SUPABASE_URL = 'YOUR_SUPABASE_URL';       // e.g. https://abc123.supabase.co
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+
+const ALERT_THRESHOLD = 0.100;
+const Y_MIN = 0.025;
+const Y_MAX = 0.250;
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let allRecords = [];
+let chart = null;
+let rangeDays = 14;
+let sliderPos = 100;
+let displayMode = false;
+let deleteTarget = null;
+let realtimeChannel = null;
+
+// ─── Helpers ───────────────────────────────────────────────────
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+const show = (el) => el.classList.remove('hidden');
+const hide = (el) => el.classList.add('hidden');
+
+function hashPin(pin) {
+  let h = 0;
+  for (let i = 0; i < pin.length; i++) h = ((h << 5) - h + pin.charCodeAt(i)) | 0;
+  return 'ph_' + Math.abs(h).toString(36);
+}
+
+function fmtDate(iso) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+function fmtDateTime(iso) {
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
+  });
+}
+function fmtDateFull(iso) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function fmtISO(iso) {
+  return new Date(iso).toISOString().replace('T', ' ').slice(0, 19);
+}
+function nowLocal() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+
+function showBanner(msg, type = 'info', duration = 5000) {
+  const area = $('#bannerArea');
+  const div = document.createElement('div');
+  div.className = `banner ${type}`;
+  div.textContent = msg;
+  area.prepend(div);
+  if (duration) setTimeout(() => div.remove(), duration);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PIN / AUTH
+// ═══════════════════════════════════════════════════════════════
+async function initLogin() {
+  try {
+    const { data } = await db.from('app_config').select('value').eq('key', 'pin_hash').single();
+    if (data) {
+      show($('#loginMode'));
+      hide($('#loginLoading'));
+      $('#loginPin').focus();
+    } else {
+      throw new Error('no pin');
+    }
+  } catch {
+    show($('#setupMode'));
+    hide($('#loginLoading'));
+    $('#setupPin').focus();
+  }
+}
+
+async function handleLogin() {
+  const pin = $('#loginPin').value.replace(/\D/g, '');
+  if (pin.length < 4) { showLoginError('login', 'PIN must be at least 4 digits'); return; }
+  try {
+    const { data } = await db.from('app_config').select('value').eq('key', 'pin_hash').single();
+    if (data && data.value === hashPin(pin)) {
+      enterApp();
+    } else {
+      showLoginError('login', 'Incorrect PIN');
+      $('#loginPin').value = '';
+      $('#loginPin').focus();
+    }
+  } catch { showLoginError('login', 'Error verifying PIN'); }
+}
+
+async function handleSetup() {
+  const pin = $('#setupPin').value.replace(/\D/g, '');
+  const confirm = $('#setupConfirm').value.replace(/\D/g, '');
+  if (pin.length < 4) { showLoginError('setup', 'PIN must be at least 4 digits'); return; }
+  if (!/^\d+$/.test(pin)) { showLoginError('setup', 'PIN must contain only numbers'); return; }
+  if (pin !== confirm) { showLoginError('setup', 'PINs do not match'); return; }
+  try {
+    await db.from('app_config').upsert({ key: 'pin_hash', value: hashPin(pin) });
+    enterApp();
+  } catch { showLoginError('setup', 'Error saving PIN'); }
+}
+
+function showLoginError(mode, msg) {
+  const el = mode === 'setup' ? $('#setupError') : $('#loginError');
+  el.textContent = msg;
+  show(el);
+}
+
+function enterApp() {
+  hide($('#loginScreen'));
+  show($('#appScreen'));
+  loadData();
+  setupRealtime();
+}
+
+// ─── Login event wiring ────────────────────────────────────────
+$('#loginBtn').addEventListener('click', handleLogin);
+$('#setupBtn').addEventListener('click', handleSetup);
+$('#loginPin').addEventListener('keydown', (e) => { if (e.key === 'Enter') handleLogin(); });
+$('#setupPin').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#setupConfirm').focus(); });
+$('#setupConfirm').addEventListener('keydown', (e) => { if (e.key === 'Enter') handleSetup(); });
+// Filter non-digits
+['#setupPin', '#setupConfirm', '#loginPin'].forEach(sel => {
+  $(sel).addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g, ''); });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// DATA
+// ═══════════════════════════════════════════════════════════════
+async function loadData() {
+  const { data, error } = await supabase
+    .from('uv254_readings')
+    .select('*')
+    .order('date_time', { ascending: true });
+
+  if (error) { showBanner('Error loading data: ' + error.message, 'error'); return; }
+  allRecords = data || [];
+  sliderPos = 100;
+  refresh();
+}
+
+function setupRealtime() {
+  realtimeChannel = supabase
+    .channel('uv254-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'uv254_readings' }, () => {
+      loadData();
+    })
+    .subscribe((status) => {
+      const dot = $('#rtDot');
+      const label = $('#rtLabel');
+      if (status === 'SUBSCRIBED') {
+        dot.className = 'rt-dot connected';
+        label.textContent = 'Live';
+      } else {
+        dot.className = 'rt-dot disconnected';
+        label.textContent = 'Reconnecting…';
+      }
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// WINDOW CALCULATION
+// ═══════════════════════════════════════════════════════════════
+function getWindow() {
+  const windowMs = rangeDays * 24 * 60 * 60 * 1000;
+  const nowMs = Date.now();
+  const oldestMs = allRecords.length > 0 ? new Date(allRecords[0].date_time).getTime() : nowMs;
+  const earliestEnd = Math.min(oldestMs + windowMs, nowMs);
+  const latestEnd = nowMs;
+  const totalSlide = latestEnd - earliestEnd;
+  const windowEnd = totalSlide > 0 ? earliestEnd + (sliderPos / 100) * totalSlide : latestEnd;
+  const windowStart = windowEnd - windowMs;
+  return { windowStart, windowEnd, canSlide: totalSlide > 0 && allRecords.length > 0 };
+}
+
+function getFilteredRecords() {
+  const { windowStart, windowEnd } = getWindow();
+  return allRecords.filter(r => {
+    const t = new Date(r.date_time).getTime();
+    return t >= windowStart && t <= windowEnd;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REFRESH ALL UI
+// ═══════════════════════════════════════════════════════════════
+function refresh() {
+  const filtered = getFilteredRecords();
+  const { windowStart, windowEnd, canSlide } = getWindow();
+  const isLatest = sliderPos >= 99;
+
+  // Record count
+  $('#recordCount').textContent = allRecords.length;
+
+  // Chart
+  if (filtered.length < 2) {
+    show($('#chartEmpty'));
+    hide($('#chartContainer'));
+    $('#chartEmpty').textContent = filtered.length === 0
+      ? 'Enter results below to see the trend.'
+      : 'Add at least 2 results to display the trend line.';
+  } else {
+    hide($('#chartEmpty'));
+    show($('#chartContainer'));
+    updateChart(filtered);
+  }
+
+  // Slider
+  if (canSlide) {
+    show($('#sliderWrap'));
+    $('#sliderStart').textContent = fmtDateFull(new Date(windowStart));
+    $('#sliderEnd').textContent = fmtDateFull(new Date(windowEnd));
+    $('#sliderLabelText').textContent = isLatest ? `Latest ${rangeDays} days` : `${rangeDays}-day window`;
+    $('#sliderInput').value = sliderPos;
+    isLatest ? hide($('#jumpLatest')) : show($('#jumpLatest'));
+  } else {
+    hide($('#sliderWrap'));
+  }
+
+  // Stats
+  const values = filtered.map(r => parseFloat(r.value));
+  if (values.length > 0) {
+    show($('#statsRow'));
+    const last = values[values.length - 1];
+    const avg = values.reduce((s, v) => s + v, 0) / values.length;
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const alerts = values.filter(v => v >= ALERT_THRESHOLD).length;
+    $('#statLast').textContent = last.toFixed(3);
+    $('#statLast').className = 'stat-value' + (last >= ALERT_THRESHOLD ? ' alert' : '');
+    $('#statAvg').textContent = avg.toFixed(3);
+    $('#statMin').textContent = min.toFixed(3);
+    $('#statMax').textContent = max.toFixed(3);
+    $('#statAlerts').textContent = alerts;
+    $('#statAlerts').className = 'stat-value' + (alerts > 0 ? ' alert' : '');
+  } else {
+    hide($('#statsRow'));
+  }
+
+  // Table
+  renderTable();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CHART
+// ═══════════════════════════════════════════════════════════════
+function updateChart(filtered) {
+  const labels = filtered.map(r => fmtDate(r.date_time));
+  const data = filtered.map(r => parseFloat(r.value));
+  const pointColors = data.map(v => v >= ALERT_THRESHOLD ? '#dc2626' : '#0369a1');
+  const pointRadii = data.map(v => v >= ALERT_THRESHOLD ? 5 : 4);
+  const pointBorderColors = data.map(v => v >= ALERT_THRESHOLD ? '#fecaca' : 'transparent');
+  const pointBorderWidths = data.map(v => v >= ALERT_THRESHOLD ? 2 : 0);
+  const avg = data.reduce((s, v) => s + v, 0) / data.length;
+
+  const config = {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        borderColor: '#0369a1',
+        borderWidth: 2.5,
+        pointBackgroundColor: pointColors,
+        pointRadius: pointRadii,
+        pointBorderColor: pointBorderColors,
+        pointBorderWidth: pointBorderWidths,
+        pointHoverRadius: 7,
+        pointHoverBorderColor: '#fff',
+        pointHoverBorderWidth: 2,
+        tension: 0.3,
+        fill: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 300 },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0f172a',
+          titleFont: { size: 11 },
+          bodyFont: { size: 14, weight: 'bold' },
+          padding: 10,
+          cornerRadius: 6,
+          callbacks: {
+            title: (items) => fmtDateTime(filtered[items[0].dataIndex].date_time),
+            label: (item) => {
+              const v = item.raw;
+              return v.toFixed(3) + ' cm⁻¹' + (v >= ALERT_THRESHOLD ? '  ⚠ ALERT' : '');
+            }
+          }
+        },
+        annotation: {
+          annotations: {
+            alertLine: {
+              type: 'line', yMin: ALERT_THRESHOLD, yMax: ALERT_THRESHOLD,
+              borderColor: '#dc2626', borderWidth: 1.5, borderDash: [8, 4],
+              label: {
+                display: true, content: 'Alert: ' + ALERT_THRESHOLD,
+                position: 'end', backgroundColor: 'transparent',
+                color: '#dc2626', font: { size: 11, weight: '600' }
+              }
+            },
+            avgLine: {
+              type: 'line', yMin: avg, yMax: avg,
+              borderColor: '#94a3b8', borderWidth: 1, borderDash: [4, 4],
+              label: {
+                display: true, content: 'Avg: ' + avg.toFixed(3),
+                position: 'start', backgroundColor: 'transparent',
+                color: '#94a3b8', font: { size: 11 }
+              }
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: '#e2e6ea', drawBorder: false },
+          ticks: { font: { size: 12 }, color: '#64748b' }
+        },
+        y: {
+          min: Y_MIN, max: Y_MAX,
+          grid: { color: '#e2e6ea', drawBorder: false },
+          ticks: { font: { size: 12 }, color: '#64748b' },
+          title: { display: true, text: 'cm⁻¹', color: '#94a3b8', font: { size: 12 } }
+        }
+      }
+    }
+  };
+
+  if (chart) {
+    chart.data = config.data;
+    chart.options = config.options;
+    chart.update();
+  } else {
+    chart = new Chart($('#trendChart'), config);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TABLE
+// ═══════════════════════════════════════════════════════════════
+function renderTable() {
+  const body = $('#tableBody');
+  body.innerHTML = '';
+  if (allRecords.length === 0) {
+    show($('#tableEmpty'));
+    hide($('#tableWrap'));
+    return;
+  }
+  hide($('#tableEmpty'));
+  show($('#tableWrap'));
+
+  [...allRecords].reverse().forEach(r => {
+    const v = parseFloat(r.value);
+    const isAlert = v >= ALERT_THRESHOLD;
+    const tr = document.createElement('tr');
+    if (isAlert) tr.className = 'alert-row';
+
+    tr.innerHTML = `
+      <td>${fmtDateTime(r.date_time)}</td>
+      <td class="val-cell${isAlert ? ' alert' : ''}">${v.toFixed(3)}${isAlert ? ' ⚠' : ''}</td>
+      <td>${r.analyst || '—'}</td>
+      <td style="text-align:center" class="del-cell" data-id="${r.id}">
+        <button class="del-btn" title="Delete">✕</button>
+      </td>`;
+    body.appendChild(tr);
+  });
+}
+
+// Table delete handling via delegation
+$('#tableBody').addEventListener('click', async (e) => {
+  const cell = e.target.closest('.del-cell');
+  if (!cell) return;
+  const id = cell.dataset.id;
+
+  // If already showing confirmation
+  if (cell.dataset.confirming) {
+    if (e.target.classList.contains('confirm-yes')) {
+      const { error } = await db.from('uv254_readings').delete().eq('id', id);
+      if (error) showBanner('Delete failed: ' + error.message, 'error');
+      else loadData();
+    } else if (e.target.classList.contains('confirm-no')) {
+      cell.removeAttribute('data-confirming');
+      cell.innerHTML = '<button class="del-btn" title="Delete">✕</button>';
+    }
+    return;
+  }
+
+  // Show confirmation
+  cell.dataset.confirming = 'true';
+  cell.innerHTML = `<span class="confirm-row">
+    <button class="confirm-yes">Yes</button>
+    <button class="confirm-no">No</button>
+  </span>`;
+});
+
+// ═══════════════════════════════════════════════════════════════
+// FORM HANDLING
+// ═══════════════════════════════════════════════════════════════
+$('#inputDateTime').value = nowLocal();
+
+$('#inputValue').addEventListener('input', (e) => {
+  const v = parseFloat(e.target.value);
+  if (!isNaN(v) && v >= ALERT_THRESHOLD) {
+    e.target.classList.add('alert-value');
+    show($('#inputAlert'));
+  } else {
+    e.target.classList.remove('alert-value');
+    hide($('#inputAlert'));
+  }
+  $('#submitBtn').disabled = !e.target.value;
+});
+
+$('#submitBtn').addEventListener('click', async () => {
+  const val = parseFloat($('#inputValue').value);
+  if (isNaN(val) || val < 0 || val > 2) {
+    showFormError('UV254 must be between 0.000 and 2.000 cm⁻¹'); return;
+  }
+  const dt = $('#inputDateTime').value;
+  if (!dt) { showFormError('Date/time is required'); return; }
+
+  hideFormError();
+  $('#submitBtn').disabled = true;
+  $('#submitBtn').textContent = 'Saving…';
+
+  const { error } = await db.from('uv254_readings').insert({
+    date_time: new Date(dt).toISOString(),
+    value: val,
+    analyst: $('#inputAnalyst').value.trim() || '—',
+  });
+
+  if (error) {
+    showFormError('Failed to save: ' + error.message);
+  } else {
+    $('#inputValue').value = '';
+    $('#inputValue').classList.remove('alert-value');
+    hide($('#inputAlert'));
+    $('#inputDateTime').value = nowLocal();
+    // Data will refresh via realtime, but also force it
+    loadData();
+  }
+  $('#submitBtn').disabled = false;
+  $('#submitBtn').textContent = 'Save Result';
+});
+
+['#inputValue', '#inputAnalyst'].forEach(sel => {
+  $(sel).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') $('#submitBtn').click();
+  });
+});
+
+function showFormError(msg) { const el = $('#formError'); el.textContent = msg; show(el); }
+function hideFormError() { hide($('#formError')); }
+
+// ═══════════════════════════════════════════════════════════════
+// RANGE TOGGLE
+// ═══════════════════════════════════════════════════════════════
+$$('.range-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $$('.range-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    rangeDays = parseInt(btn.dataset.days);
+    sliderPos = 100;
+    refresh();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// SLIDER
+// ═══════════════════════════════════════════════════════════════
+$('#sliderInput').addEventListener('input', (e) => {
+  sliderPos = parseFloat(e.target.value);
+  refresh();
+});
+$('#jumpLatest').addEventListener('click', () => { sliderPos = 100; refresh(); });
+
+// ═══════════════════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════════════════
+$$('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $$('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    if (tab === 'entry') { show($('#panelEntry')); hide($('#panelTable')); }
+    else { hide($('#panelEntry')); show($('#panelTable')); }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// DISPLAY MODE
+// ═══════════════════════════════════════════════════════════════
+$('#displayToggle').addEventListener('click', () => {
+  displayMode = !displayMode;
+  const app = $('#appScreen');
+  const entry = $('#entrySection');
+  const toggle = $('#displayToggle');
+  if (displayMode) {
+    app.classList.add('display-mode');
+    hide(entry);
+    toggle.classList.add('active');
+    toggle.textContent = '✏️ Entry';
+  } else {
+    app.classList.remove('display-mode');
+    show(entry);
+    toggle.classList.remove('active');
+    toggle.textContent = '🖥 Display';
+  }
+  // Resize chart
+  if (chart) setTimeout(() => chart.resize(), 50);
+});
+
+// ═══════════════════════════════════════════════════════════════
+// CSV DOWNLOAD
+// ═══════════════════════════════════════════════════════════════
+$('#csvDownloadBtn').addEventListener('click', () => {
+  if (allRecords.length === 0) { showBanner('No data to download.', 'info'); return; }
+  const header = 'DateTime,UV254_cm-1,Analyst\n';
+  const rows = allRecords.map(r =>
+    `${fmtISO(r.date_time)},${parseFloat(r.value).toFixed(3)},${r.analyst || '—'}`
+  ).join('\n');
+  const blob = new Blob([header + rows], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ZornRaw_UV254_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+// ═══════════════════════════════════════════════════════════════
+// CSV UPLOAD
+// ═══════════════════════════════════════════════════════════════
+$('#csvUploadBtn').addEventListener('click', () => $('#csvFileInput').click());
+$('#csvFileInput').addEventListener('change', (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (ev) => {
+    try {
+      const lines = ev.target.result.split(/\r?\n/).filter(l => l.trim());
+      const first = lines[0].toLowerCase();
+      const startIdx = first.includes('datetime') || first.includes('date') ? 1 : 0;
+
+      const rows = [];
+      let skipped = 0;
+      for (let i = startIdx; i < lines.length; i++) {
+        const parts = lines[i].split(',');
+        if (parts.length < 2) { skipped++; continue; }
+        const dt = new Date(parts[0].trim());
+        const val = parseFloat(parts[1].trim());
+        if (isNaN(dt.getTime()) || isNaN(val)) { skipped++; continue; }
+        rows.push({
+          date_time: dt.toISOString(),
+          value: val,
+          analyst: (parts[2] || '').trim() || 'CSV',
+        });
+      }
+
+      if (rows.length === 0) {
+        showBanner('No valid rows. Expected: DateTime, UV254, Analyst (optional)', 'error');
+      } else {
+        const { error } = await db.from('uv254_readings').insert(rows);
+        if (error) throw error;
+        showBanner(`Imported ${rows.length} record${rows.length > 1 ? 's' : ''}${skipped ? ` (${skipped} skipped)` : ''}.`, 'success');
+        loadData();
+      }
+    } catch (err) {
+      showBanner('CSV import failed: ' + (err.message || 'Parse error'), 'error');
+    }
+    e.target.value = '';
+  };
+  reader.readAsText(file);
+});
+
+// ═══════════════════════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════════════════════
+initLogin();
+</script>
+</body>
+</html>
