@@ -768,17 +768,22 @@ $('#tableBody').addEventListener('click', function(e) {
 // ==================================================================
 $('#inputDateTime').value = nowLocal();
 
-$('#inputValue').addEventListener('input', function(e) {
-  var v = parseFloat(e.target.value);
+function checkValueInput() {
+  var el = $('#inputValue');
+  var v = parseFloat(el.value);
   if (!isNaN(v) && v >= ALERT_THRESHOLD) {
-    e.target.classList.add('alert-value');
+    el.classList.add('alert-value');
     show($('#inputAlert'));
   } else {
-    e.target.classList.remove('alert-value');
+    el.classList.remove('alert-value');
     hide($('#inputAlert'));
   }
-  $('#submitBtn').disabled = !e.target.value;
-});
+  $('#submitBtn').disabled = !(el.value && el.value.trim().length > 0);
+}
+
+$('#inputValue').addEventListener('input', checkValueInput);
+$('#inputValue').addEventListener('change', checkValueInput);
+$('#inputValue').addEventListener('keyup', checkValueInput);
 
 $('#submitBtn').addEventListener('click', function() {
   var val = parseFloat($('#inputValue').value);
@@ -797,6 +802,7 @@ $('#submitBtn').addEventListener('click', function() {
     value: val,
     analyst: $('#inputAnalyst').value.trim() || '---'
   }).then(function(result) {
+    console.log('Insert result:', JSON.stringify(result));
     if (result.error) {
       showFormError('Failed to save: ' + result.error.message);
     } else {
@@ -806,6 +812,11 @@ $('#submitBtn').addEventListener('click', function() {
       $('#inputDateTime').value = nowLocal();
       loadData();
     }
+    $('#submitBtn').disabled = false;
+    $('#submitBtn').textContent = 'Save Result';
+  }).catch(function(err) {
+    console.error('Insert catch:', err);
+    showFormError('Failed to save: ' + err.message);
     $('#submitBtn').disabled = false;
     $('#submitBtn').textContent = 'Save Result';
   });
@@ -923,15 +934,52 @@ $('#csvFileInput').addEventListener('change', function(e) {
 
       if (rows.length === 0) {
         showBanner('No valid rows. Expected: DateTime, UV254, Analyst (optional)', 'error');
-      } else {
-        db.from('uv254_readings').insert(rows).then(function(result) {
-          if (result.error) throw result.error;
-          showBanner('Imported ' + rows.length + ' record' + (rows.length > 1 ? 's' : '') + (skipped ? ' (' + skipped + ' skipped)' : '') + '.', 'success');
+        return;
+      }
+
+      // Batch insert in chunks of 500
+      var BATCH_SIZE = 500;
+      var batches = [];
+      for (var b = 0; b < rows.length; b += BATCH_SIZE) {
+        batches.push(rows.slice(b, b + BATCH_SIZE));
+      }
+
+      showBanner('Importing ' + rows.length + ' rows in ' + batches.length + ' batch(es)...', 'info', 0);
+
+      var batchIndex = 0;
+      var totalInserted = 0;
+      var totalFailed = 0;
+
+      function insertNextBatch() {
+        if (batchIndex >= batches.length) {
+          // All done
+          $('#bannerArea').innerHTML = '';
+          var msg = 'Imported ' + totalInserted + ' record' + (totalInserted !== 1 ? 's' : '');
+          if (totalFailed > 0) msg += ' (' + totalFailed + ' failed)';
+          if (skipped > 0) msg += ' (' + skipped + ' skipped)';
+          showBanner(msg, totalFailed > 0 ? 'error' : 'success');
           loadData();
-        }).catch(function(err) {
-          showBanner('CSV import failed: ' + (err.message || 'Unknown error'), 'error');
+          return;
+        }
+
+        var batch = batches[batchIndex];
+        db.from('uv254_readings').insert(batch).then(function(result) {
+          if (result.error) {
+            totalFailed += batch.length;
+          } else {
+            totalInserted += batch.length;
+          }
+          batchIndex++;
+          insertNextBatch();
+        }).catch(function() {
+          totalFailed += batch.length;
+          batchIndex++;
+          insertNextBatch();
         });
       }
+
+      insertNextBatch();
+
     } catch (err) {
       showBanner('CSV import failed: ' + (err.message || 'Parse error'), 'error');
     }
