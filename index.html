@@ -686,8 +686,9 @@ function updateChart(filtered) {
               borderColor: '#dc2626', borderWidth: 1.5, borderDash: [8, 4],
               label: {
                 display: true, content: 'Alert: ' + ALERT_THRESHOLD,
-                position: 'end', backgroundColor: 'transparent',
-                color: '#dc2626', font: { size: 11, weight: '600' }
+                position: 'end', backgroundColor: 'rgba(255,255,255,0.85)',
+                color: '#dc2626', font: { size: 11, weight: '600' },
+                yAdjust: -14, padding: { top: 2, bottom: 2, left: 4, right: 4 }
               }
             },
             avgLine: {
@@ -989,6 +990,8 @@ $('#csvFileInput').addEventListener('change', function(e) {
         }
 
         var batch = batches[batchIndex];
+        showBanner('Importing batch ' + (batchIndex + 1) + ' of ' + batches.length + '...', 'info', 0);
+
         db.from('uv254_readings').insert(batch).then(function(result) {
           if (result.error) {
             totalFailed += batch.length;
@@ -996,11 +999,12 @@ $('#csvFileInput').addEventListener('change', function(e) {
             totalInserted += batch.length;
           }
           batchIndex++;
-          insertNextBatch();
+          // Wait 1 second between batches to avoid rate limits
+          setTimeout(insertNextBatch, 1000);
         }).catch(function() {
           totalFailed += batch.length;
           batchIndex++;
-          insertNextBatch();
+          setTimeout(insertNextBatch, 1000);
         });
       }
 
